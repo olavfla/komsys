@@ -54,9 +54,9 @@ for drone_id, battery in drone_telemetry.items():
         print(f"Assigned {drone_id} with {battery}% battery")
         break
 
-else:
+    else:
     
-    print("No suitable drone found")
+        print("No suitable drone found")
 
 time.sleep(1)
 client.loop_stop()
