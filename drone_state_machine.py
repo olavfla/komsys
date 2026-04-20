@@ -14,18 +14,18 @@ class Drone:
 
 
 
-    def __init__(self):
+    def __init__(self, id):
+        #initial transition
         self.t_0 =    {'source':'initial', 'trigger':'t', 'target':'idle'}
 
         #STATES
-        self.s_0 =  {'name': 'idle', 'do': 'send_battery_telemetry'}
+        self.s_0 =  {'name': 'idle', "entry": "stop_telemetry"}
         self.s_1 =  {'name': 'loading',
-                'entry':'set_nav_target',
-                'do': 'send_battery_telemetry',
+                'entry':'set_nav_target; start_telemetry',
                 'exit': 'set_phase("delivery")'}
         self.s_2 = {'name': 'lift_off', 'entry':'ascend_to_cruise_height'}
         self.s_3 =  {'name': 'transit',
-                'do': 'navigation_loop; send_full_telemetry',
+                'do': 'navigation_loop;',
                 'low_battery': 'set_nav_target; report_order_failed; set_phase("return")'}
         self.s_4 =  {'name': 'aquire_target',
                 'entry': 'enable_camera; start_timer("t0", "10000")',
@@ -41,7 +41,7 @@ class Drone:
         self.s_8 =  {'name': 'emergency_landing',
                 'entry': 'land',
                 'exit': 'report_position'}
-        self.s_9 =  {'name': 'unassignable', 'entry': 'low_power_mode'}
+        self.s_9 =  {'name': 'unassignable', 'entry': 'low_power_mode; stop_telemetry'}
 
         #TRANSITIONS
         self.t_1 = {'source':'idle', 'target':'loading', 'trigger': 'request_assign'}
@@ -61,14 +61,18 @@ class Drone:
         self.t_12= {'source': 'unassignable', 'target': 'idle', 'trigger':'drone_recovered'}
         self.t_13= {'source': 'landing_return', 'target':'idle', 'trigger':'landed'}
 
+
+        self.id = id
         self.phase = "delivery"
         self.battery = 100
         self.client = mqtt.Client()
         self.client.connect(MQTT_HOST)
-        self.client.subscribe("drone/commands/#")
+        self.client.subscribe("drone/all/commands")
+        self.client.subscribe(f"drone/{self.id}/commands")
         self.client.on_message = self.on_message
         self.client.loop_start()
         self.sense = fake_sense_hat()
+        self.reference_pressure = self.sense.get_pressure()
         # self.sense = SenseHat()
         self.machine = None
         self.nav_target = None
@@ -78,15 +82,21 @@ class Drone:
         self.battery_thread.daemon = True
         self.battery_thread.start()
 
+        self.telemetry_toggled = False
+        self.telemetry_thread = None
+
     def on_message(self, client, userdata, msg):
         payload = msg.payload.decode()
         server_commands = ["request_assign", "start_delivery", "return_signal", "unassign_signal", "drone_recovered"]
         if not self.machine:
             return
         if payload in server_commands:
+            if msg.topic == f"drone/all/commands":
+                print("Received broadcast command:", payload)
+                return
             self.machine.send(payload)
         elif payload == "send_telemetry":
-            self.send_full_telemetry()
+            self.send_telemetry()
         elif payload == "recharge":
             self.battery = 100
         else:
@@ -108,14 +118,44 @@ class Drone:
                 self.machine.send("battery_critical")
             elif self.battery <= 30:
                 self.machine.send("battery_low")
+    
+    def stop_telemetry(self):
+        self.telemetry_toggled = False
+        if self.telemetry_thread and self.telemetry_thread.is_alive():
+            self.telemetry_thread.join(timeout=10)
+            print("Telemetry stopped")
+    
+    def start_telemetry(self):
+        if not self.telemetry_toggled:
+            self.telemetry_toggled = True
+            self.telemetry_thread = threading.Thread(target=self.telemetry_loop)
+            self.telemetry_thread.daemon = True
+            self.telemetry_thread.start()
+            print("Telemetry started")
+
+    def telemetry_loop(self):
+        while self.telemetry_toggled:
+            self.send_telemetry()
+            time.sleep(5)
+
+    def send_telemetry(self):
+        altitude = self.get_altitude()
+        pressure = self.sense.get_pressure()
+        payload={
+            "id":        self.id,
+            "battery":   self.battery, 
+            "altitude":  altitude, 
+            "pressure":  pressure, 
+            "phase":     self.phase,
+            "target":    self.nav_target,
+            "telemetry": "active" if self.telemetry_toggled else "inactive",
+            "state":     self.machine and self.machine.state}
+        self.client.publish("drone/telemetry", json.dumps(payload))
+    
 
     def set_nav_target(self):
         self.nav_target={"NorthSouth": 63.4180, "EastWest": 10.4026} #la bere inn realfagsbygget som eksempel
         print("navigation target set:", self.nav_target)
-
-    def send_battery_telemetry(self):
-        payload = {"battery": self.battery}
-        self.client.publish("drone/telemetry/battery", json.dumps(payload))
 
     def set_phase(self, phase):
         self.phase = phase
@@ -123,7 +163,7 @@ class Drone:
 
     def get_altitude(self):
         pressure = self.sense.get_pressure()
-        pressure_sea_level = 1013.25 
+        pressure_sea_level = self.reference_pressure
         altitude = 44330.0 * (1.0 - pow(pressure / pressure_sea_level, 1.0 / 5.255))
         return altitude
 
@@ -131,37 +171,27 @@ class Drone:
         altitude=self.get_altitude()
         payload={"altitude": altitude}
         self.client.publish("drone/telemetry/altitude", json.dumps(payload))
-    
-    #to do navigation loop?
 
-    def send_full_telemetry(self):
-        altitude = self.get_altitude()
-        pressure = self.sense.get_pressure()
-        payload={
-            "battery": self.battery, 
-            "altitude": altitude, 
-            "pressure":pressure, 
-            "phase": self.phase,
-            "target": self.nav_target,
-            "state": self.machine and self.machine.state}
-        self.client.publish("drone/telemetry", json.dumps(payload))
+    def mark_order_as_complete(self):
+        payload = {"status": "complete"}
+        self.client.publish("drone/orders/status", json.dumps(payload))
+        print("Order reported as complete")
+
+    def mark_order_as_failed(self):
+        payload = {"status": "failed"}
+        self.client.publish("drone/orders/status", json.dumps(payload))
+        print("Order reported as failed")
     
-    def target_detection(self): #???
+    def target_detection(self): 
         pass
 
     def play_noise(self):
         pass
 
-    def fly(self):
-        pass
 
-    def land(self):
-        pass
-
-    def charge(self):
-        pass
-
-
+#To do:
+#Fix "ascend_to_cruise_height" 
+#Play sound
 
 
 
@@ -185,8 +215,15 @@ print("Altitude: %.2f meters" % altitude)
 
 """
 
+
+###
+### CHANGES TO THE STATEMACHINE
+### - Removed "send_full_telemetry" and "send_battery_telemetry"
+### - Added "start_telemetry" to "loading" entry, and "stop_telemetry" to "unnassignable" entry and idle entry
+###
+
 if __name__ == "__main__":
-    drone = Drone()
+    drone = Drone("flashbang")
     stm = Machine(name='drone_fsm', states=[drone.s_0, drone.s_1, drone.s_2, drone.s_3, drone.s_4, drone.s_5, drone.s_6, drone.s_7, drone.s_8, drone.s_9], transitions=[drone.t_0, drone.t_1, drone.t_2, drone.t_3, drone.t_4, drone.t_5, drone.t_6, drone.t_7, drone.t_8, drone.t_9, drone.t_10, drone.t_11, drone.t_12, drone.t_13], obj=drone)
     drone.machine = stm
     driver = Driver()
