@@ -3,6 +3,7 @@ import paho.mqtt.client as mqtt
 import json
 import time
 import threading
+import sys
 # from sense_hat import SenseHat
 
 MQTT_HOST = "localhost"
@@ -92,7 +93,7 @@ class Drone:
             return
         if payload in server_commands:
             if msg.topic == f"drone/all/commands":
-                print("Received broadcast command:", payload)
+                print("Ignoring broadcast command:", payload)
                 return
             self.machine.send(payload)
         elif payload == "send_telemetry":
@@ -150,7 +151,8 @@ class Drone:
             "target":    self.nav_target,
             "telemetry": "active" if self.telemetry_toggled else "inactive",
             "state":     self.machine and self.machine.state}
-        self.client.publish("drone/telemetry", json.dumps(payload))
+        self.client.publish(f"drone/{self.id}/telemetry", json.dumps(payload))
+    
     
 
     def set_nav_target(self):
@@ -168,29 +170,29 @@ class Drone:
         return altitude
 
     def ascend_to_cruise_height(self):
-        altitude=self.get_altitude()
-        payload={"altitude": altitude}
-        self.client.publish("drone/telemetry/altitude", json.dumps(payload))
+        while altitude < 5:
+            altitude=self.get_altitude()
+        self.machine.send("at_cruising_altitude")
 
     def mark_order_as_complete(self):
         payload = {"status": "complete"}
-        self.client.publish("drone/orders/status", json.dumps(payload))
+        self.client.publish(f"drone/{self.id}/order_status", json.dumps(payload))
         print("Order reported as complete")
 
     def mark_order_as_failed(self):
         payload = {"status": "failed"}
-        self.client.publish("drone/orders/status", json.dumps(payload))
+        self.client.publish(f"drone/{self.id}/order_status", json.dumps(payload))
         print("Order reported as failed")
     
-    def target_detection(self): 
+    def target_detection(self):
         pass
 
     def play_noise(self):
+        print("beep boop")
         pass
 
 
-#To do:
-#Fix "ascend_to_cruise_height" 
+#To do: 
 #Play sound
 
 
@@ -215,7 +217,6 @@ print("Altitude: %.2f meters" % altitude)
 
 """
 
-
 ###
 ### CHANGES TO THE STATEMACHINE
 ### - Removed "send_full_telemetry" and "send_battery_telemetry"
@@ -223,7 +224,11 @@ print("Altitude: %.2f meters" % altitude)
 ###
 
 if __name__ == "__main__":
-    drone = Drone("flashbang")
+    if len(sys.argv) > 1:
+        drone_id = sys.argv[1]
+    else:
+        drone_id = "flashbang"
+    drone = Drone(drone_id)
     stm = Machine(name='drone_fsm', states=[drone.s_0, drone.s_1, drone.s_2, drone.s_3, drone.s_4, drone.s_5, drone.s_6, drone.s_7, drone.s_8, drone.s_9], transitions=[drone.t_0, drone.t_1, drone.t_2, drone.t_3, drone.t_4, drone.t_5, drone.t_6, drone.t_7, drone.t_8, drone.t_9, drone.t_10, drone.t_11, drone.t_12, drone.t_13], obj=drone)
     drone.machine = stm
     driver = Driver()

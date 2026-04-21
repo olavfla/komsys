@@ -10,11 +10,13 @@
 import paho.mqtt.client as mqtt
 import json
 import time
+import threading
+from simple_term_menu import TerminalMenu
 
 broker = "localhost"
 drone_telemetry = {}
 
-def on_message(self, client, userdata, msg):
+def on_message(client, userdata, msg):
 
     global drone_telemetry
 
@@ -23,12 +25,12 @@ def on_message(self, client, userdata, msg):
 
     # Get drone id and battery from payload
     drone_id = data.get("id")
-    battery = data.get("battery")
     
-    if drone_id and battery is not None:
-        # Save id and battery in dict, then print it
-        drone_telemetry[drone_id] = battery
-        print(f"{drone_id}: {battery}%")
+    # if drone_id and battery is not None:
+    #     # Save id and battery in dict, then print it
+    #     drone_telemetry[drone_id] = battery
+    #     print(f"{drone_id}: {battery}%")
+    drone_telemetry[drone_id] = data
 
 
 client = mqtt.Client()
@@ -37,7 +39,7 @@ client = mqtt.Client()
 client.on_message = on_message
 
 client.connect(broker, 1883, 60)
-client.subscribe("drone/all/commands")
+client.subscribe("drone/+/telemetry")
 client.loop_start()
 
 # Get drone telemetry
@@ -45,19 +47,42 @@ client.publish("drone/all/commands", "send_telemetry")
 
 time.sleep(5)
 
-for drone_id, battery in drone_telemetry.items():
+selected_drone = None
 
-    # if battery is acceptable, assign drone and break
-    if battery >= 80:
-
-        client.publish(f"drone/{drone_id}/commands", "request_assign")
-        print(f"Assigned {drone_id} with {battery}% battery")
-        break
-
-    else:
+while True:
+    if not selected_drone:
+        print("Please select a drone to command:")
+        if not drone_telemetry:
+            print("No telemetry received yet. Waiting...")
+            time.sleep(2)
+            continue
+        options = [f"{drone['id']} ({drone['battery']}%) ({'available' if drone['state'] == 'idle' else drone['state']})" for drone in drone_telemetry.values()]
+        terminal_menu = TerminalMenu(options)
+        menu_entry_index = terminal_menu.show()
+        selected_drone = options[menu_entry_index].split()[0]
+        print(f"Selected drone: {selected_drone}")
+        print(drone_telemetry[selected_drone])
     
-        print("No suitable drone found")
+    print("Select a command to send:")
+    commands = ["request_assign", "start_delivery", "return_signal", "unassign_signal", "drone_recovered", "recharge", "print_status", "deselect_drone"]
+    terminal_menu = TerminalMenu(commands)
+    menu_entry_index = terminal_menu.show()
+    selected_command = commands[menu_entry_index]
+    if selected_command == "deselect_drone":
+        selected_drone = None
+        continue
+    elif selected_command == "print_status":
+        client.publish(f"drone/{selected_drone}/commands", "send_telemetry")
+        time.sleep(2)
+        print(drone_telemetry[selected_drone])
+        continue
+    else:
+        client.publish(f"drone/{selected_drone}/commands", selected_command)
+    
 
-time.sleep(1)
+    
+
+    time.sleep(1)
+
 client.loop_stop()
 client.disconnect()
