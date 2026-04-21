@@ -4,7 +4,7 @@ import json
 import time
 import threading
 import sys
-# from sense_hat import SenseHat
+from sense_hat import SenseHat
 
 MQTT_HOST = "localhost"
 class fake_sense_hat:
@@ -24,7 +24,7 @@ class Drone:
         self.s_1 =  {'name': 'loading',
                 'entry':'set_nav_target; start_telemetry',
                 'exit': 'set_phase("delivery")'}
-        self.s_2 = {'name': 'lift_off', 'entry':'ascend_to_cruise_height'}
+        self.s_2 = {'name': 'liftoff', 'entry':'ascend_to_cruise_height'}
         self.s_3 =  {'name': 'transit',
                 'do': 'navigation_loop;',
                 'low_battery': 'set_nav_target; report_order_failed; set_phase("return")'}
@@ -72,9 +72,9 @@ class Drone:
         self.client.subscribe(f"drone/{self.id}/commands")
         self.client.on_message = self.on_message
         self.client.loop_start()
-        self.sense = fake_sense_hat()
+        # self.sense = fake_sense_hat()
         self.reference_pressure = self.sense.get_pressure()
-        # self.sense = SenseHat()
+        self.sense = SenseHat()
         self.machine = None
         self.nav_target = None
 
@@ -156,7 +156,7 @@ class Drone:
     
 
     def set_nav_target(self):
-        self.nav_target={"NorthSouth": 63.4180, "EastWest": 10.4026} #la bere inn realfagsbygget som eksempel
+        self.nav_target={"NorthSouth": 63.4180, "EastWest": 10.4026} 
         print("navigation target set:", self.nav_target)
 
     def set_phase(self, phase):
@@ -170,16 +170,25 @@ class Drone:
         return altitude
 
     def ascend_to_cruise_height(self):
-        while altitude < 5:
-            altitude=self.get_altitude()
+        print("Ascending to cruising altitude...")
+        while self.get_altitude() < 5:
+            time.sleep(0.01)
+        print("At altitude")
         self.machine.send("at_cruising_altitude")
 
-    def mark_order_as_complete(self):
+    def land(self):
+        print("Landing...")
+        while self.get_altitude() > 0.5:
+            time.sleep(0.01)
+        print("Landed")
+        self.machine.send("landed")
+
+    def report_order_complete(self):
         payload = {"status": "complete"}
         self.client.publish(f"drone/{self.id}/order_status", json.dumps(payload))
         print("Order reported as complete")
 
-    def mark_order_as_failed(self):
+    def report_order_failed(self):
         payload = {"status": "failed"}
         self.client.publish(f"drone/{self.id}/order_status", json.dumps(payload))
         print("Order reported as failed")
@@ -190,6 +199,24 @@ class Drone:
     def play_noise(self):
         print("beep boop")
         pass
+
+    def navigation_loop(self):
+        print("Starting navigation loop...")
+        for _ in range(10):
+            time.sleep(1)
+            print("Navigating...")
+        self.machine.send("at_destination")
+    
+    def enable_camera(self):
+        print("Camera enabled")
+    
+    def open_container(self):
+        print("Container opened")
+
+    def play_instructions(self):
+        print("Playing instructions to patient")
+
+    
 
 
 #To do: 

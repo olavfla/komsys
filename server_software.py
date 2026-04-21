@@ -22,6 +22,7 @@ def on_message(client, userdata, msg):
 
     # Retrieve and decode data
     data = json.loads(msg.payload.decode())
+    data["last_update"] = time.time()
 
     # Get drone id and battery from payload
     drone_id = data.get("id")
@@ -43,18 +44,19 @@ client.subscribe("drone/+/telemetry")
 client.loop_start()
 
 # Get drone telemetry
-client.publish("drone/all/commands", "send_telemetry")
-
-time.sleep(5)
 
 selected_drone = None
 
 while True:
     if not selected_drone:
+        client.publish("drone/all/commands", "send_telemetry")
         print("Please select a drone to command:")
-        if not drone_telemetry:
+        for i in range(20):
+            time.sleep(0.1)
+            if drone_telemetry:
+                break
+        else:
             print("No telemetry received yet. Waiting...")
-            time.sleep(2)
             continue
         options = [f"{drone['id']} ({drone['battery']}%) ({'available' if drone['state'] == 'idle' else drone['state']})" for drone in drone_telemetry.values()]
         terminal_menu = TerminalMenu(options)
@@ -73,8 +75,9 @@ while True:
         continue
     elif selected_command == "print_status":
         client.publish(f"drone/{selected_drone}/commands", "send_telemetry")
-        time.sleep(2)
-        print(drone_telemetry[selected_drone])
+        if selected_drone in drone_telemetry:
+            print(f"Status of {selected_drone}:")
+            print(json.dumps(drone_telemetry[selected_drone], indent=2))
         continue
     else:
         client.publish(f"drone/{selected_drone}/commands", selected_command)
