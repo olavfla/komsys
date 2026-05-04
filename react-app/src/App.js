@@ -14,7 +14,7 @@ function App() {
   ];
 
   useEffect(() => {
-    const eventSource = new EventSource('http://localhost:8080/sse');
+    const eventSource = new EventSource('http://brick.local:8080/sse');
 
     eventSource.addEventListener('telemetry', (event) => {
       const data = JSON.parse(event.data);
@@ -46,7 +46,7 @@ function App() {
 
   const sendCommand = async (path, command) => {
     try {
-      const response = await fetch(`http://localhost:8080${path}`, {
+      const response = await fetch(`http://brick.local:8080${path}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain',
@@ -207,7 +207,7 @@ function App() {
           <button
             type="button"
             className="command-button scan-button"
-            onClick={() => sendCommand('/command/all', 'send_telemetry')}
+            onClick={() => sendCommand('/commands/all', 'send_telemetry')}
           >
             Scan
           </button>

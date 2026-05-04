@@ -6,7 +6,7 @@ import threading
 import sys
 from sense_hat import SenseHat
 
-MQTT_HOST = "localhost"
+MQTT_HOST = "brick.local"
 class fake_sense_hat:
     def get_pressure(self):
         return 1013.25 - (time.time()/10 % 10)
@@ -17,32 +17,31 @@ class Drone:
 
     def __init__(self, id):
         #initial transition
-        self.t_0 =    {'source':'initial', 'trigger':'t', 'target':'idle'}
+        self.t_0 = {'source':'initial', 'trigger':'t', 'target':'idle'}
 
         #STATES
-        self.s_0 =  {'name': 'idle', "entry": "stop_telemetry"}
-        self.s_1 =  {'name': 'loading',
-                'entry':'set_nav_target; start_telemetry',
+        self.s_0 = {'name': 'idle', "entry": "stop_telemetry"}
+        self.s_1 = {'name': 'loading',
+                'entry':'set_nav_target; start_telemetry; calibrate_sensors',
                 'exit': 'set_phase("delivery")'}
-        self.s_2 = {'name': 'liftoff', 'entry':'ascend_to_cruise_height'}
-        self.s_3 =  {'name': 'transit',
+        self.s_2 = {'name': 'liftoff', 'do':'ascend_to_cruise_height'}
+        self.s_3 = {'name': 'transit',
                 'do': 'navigation_loop;',
                 'low_battery': 'set_nav_target; report_order_failed; set_phase("return")'}
-        self.s_4 =  {'name': 'aquire_target',
+        self.s_4 = {'name': 'aquire_target',
                 'entry': 'enable_camera; start_timer("t0", "10000")',
                 'do': 'target_detection'}
-        self.s_5 =  {'name': 'land',
-                'entry': 'land',
-                'do': 'play_noise'}
-        self.s_6 =  {'name': 'dispense_medicine',
+        self.s_5 = {'name': 'land',
+                'do': 'land; play_noise'}
+        self.s_6 = {'name': 'dispense_medicine',
                 'entry': 'open_container; play_instructions',
                 'exit': 'report_order_complete; set_phase("return"); set_nav_target'}
-        self.s_7 =  {'name': 'landing_return',
-                'entry': 'land'}
-        self.s_8 =  {'name': 'emergency_landing',
-                'entry': 'land',
+        self.s_7 = {'name': 'landing_return',
+                'do': 'land'}
+        self.s_8 = {'name': 'emergency_landing',
+                'do': 'land',
                 'exit': 'report_position'}
-        self.s_9 =  {'name': 'unassignable', 'entry': 'low_power_mode; stop_telemetry'}
+        self.s_9 = {'name': 'unassignable', 'entry': 'low_power_mode; stop_telemetry'}
 
         #TRANSITIONS
         self.t_1 = {'source':'idle', 'target':'loading', 'trigger': 'request_assign'}
@@ -73,8 +72,8 @@ class Drone:
         self.client.on_message = self.on_message
         self.client.loop_start()
         # self.sense = fake_sense_hat()
-        self.reference_pressure = self.sense.get_pressure()
         self.sense = SenseHat()
+        self.reference_pressure = self.sense.get_pressure()
         self.machine = None
         self.nav_target = None
 
@@ -215,6 +214,10 @@ class Drone:
 
     def play_instructions(self):
         print("Playing instructions to patient")
+
+    def calibrate_sensors(self):
+        self.reference_pressure = self.sense.get_pressure()
+        print("Sensors calibrated, reference pressure set to:", self.reference_pressure)
 
     
 

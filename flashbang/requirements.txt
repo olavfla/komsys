@@ -1,0 +1,5 @@
+numpy==2.4.4
+paho-mqtt==2.1.0
+pillow==12.2.0
+sense-hat==2.6.0
+stmpy==0.7.5
