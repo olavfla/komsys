@@ -46,7 +46,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if self.path.startswith("/command/"):
+        if self.path.startswith("/commands/"):
             if len(self.path.split("/")) != 3:
                 self.send_response(400)
                 self.send_header("Content-type", "application/json")
@@ -65,7 +65,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 response = {"status": "error", "message": str(e)}
                 self.wfile.write(json.dumps(response).encode())
                 return
-            if self.path == "/command/all":
+            if self.path == "/commands/all":
                 if command == "send_telemetry":
                     self.server.mqtt_client.publish("drone/all/commands", command)
                     self.send_response(200)
